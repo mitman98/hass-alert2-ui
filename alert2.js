@@ -1,3 +1,5 @@
+//TYLER v3
+
 const LitElement = Object.getPrototypeOf(customElements.get("ha-panel-lovelace"));
 const html = LitElement.prototype.html;
 const css = LitElement.prototype.css;
@@ -319,6 +321,28 @@ function getPriority(hass, dispInfo) {
     }
     return priority ? priority : 'low';
 }
+
+function getAlertState(ent, isOn, isAcked) {
+    const not_enabled = (ent.attributes.notification_control &&
+                         (ent.attributes.notification_control != NOTIFICATIONS_ENABLED));
+    
+    if (not_enabled) {
+        // Check if disabled or snoozed
+        if (ent.attributes.notification_control === NOTIFICATIONS_DISABLED) {
+            return isOn ? 'disabled_on' : 'disabled_off';
+        } else {
+            // Assume it's snoozed if not disabled and not enabled
+            return isOn ? 'snoozed_on' : 'snoozed_off';
+        }
+    } else {
+        // Regular active/acked states 
+        if (isAcked) {
+            return isOn ? 'acked_on' : 'acked_off';
+        } else {
+            return isOn ? 'on' : 'off';
+        }
+    }
+}
 //function isTruthy(a) {
 //    return !isNaN(parseInt(a)) || ['yes','no','on','off','true','false'].includes(a.toLowerCase());
 //}
@@ -414,6 +438,7 @@ class Alert2Overview extends LitElement {
         // e.g., 6 times ever 4 hours
         this._updateIntervalFactor = 6;
         this._displayValMonitor = null;
+        this._expandedHideStates = [];
     }
     // Rate limit how often jrefresh is called.
     // rerunIsReload can be in 3 states:
@@ -480,8 +505,133 @@ class Alert2Overview extends LitElement {
             if (Object.hasOwn(this._config, 'filter_entity_id') && typeof this._config.filter_entity_id !== 'string') {
                 this._configError = `Config field filter_entity_id must be a string, not of type ${typeof this._config.filter_entity_id}`;
             }
+            
+            // Validate hide_states config
+            if (Object.hasOwn(this._config, 'hide_states')) {
+                const validStates = ['on', 'off', 'acked_on', 'acked_off', 'disabled_on', 'disabled_off', 'snoozed_on', 'snoozed_off'];
+                const validConvenienceStates = ['acked', 'disabled', 'snoozed'];
+                const allValidStates = [...validStates, ...validConvenienceStates];
+                
+                if (Array.isArray(this._config.hide_states)) {
+                    for (const state of this._config.hide_states) {
+                        if (!allValidStates.includes(state)) {
+                            this._configError = `Invalid hide_states value: ${state}. Valid values: ${allValidStates.join(', ')}`;
+                            break;
+                        }
+                    }
+                } else {
+                    this._configError = `Config field hide_states must be an array, not of type ${typeof this._config.hide_states}`;
+                }
+            }
+            
+            // Validate show_priorities config
+            if (Object.hasOwn(this._config, 'show_priorities')) {
+                const validPriorities = ['low', 'medium', 'high'];
+                if (Array.isArray(this._config.show_priorities)) {
+                    for (const priority of this._config.show_priorities) {
+                        if (!validPriorities.includes(priority)) {
+                            this._configError = `Invalid show_priorities value: ${priority}. Valid values: ${validPriorities.join(', ')}`;
+                            break;
+                        }
+                    }
+                } else {
+                    this._configError = `Config field show_priorities must be an array, not of type ${typeof this._config.show_priorities}`;
+                }
+            }
+            
+            // Validate default_slider_value config
+            if (Object.hasOwn(this._config, 'default_slider_value')) {
+                const val = this._config.default_slider_value;
+                if (typeof val !== 'number' || !Number.isInteger(val) || val < 0 || val >= this._sliderValArr.length) {
+                    this._configError = `Config field default_slider_value must be an integer between 0 and ${this._sliderValArr.length - 1}`;
+                }
+            }
+            
+            // Validate color configs
+            const colorFields = ['low_color', 'medium_color', 'high_color', 'off_color'];
+            for (const colorField of colorFields) {
+                if (Object.hasOwn(this._config, colorField)) {
+                    const colorValue = this._config[colorField];
+                    if (typeof colorValue !== 'string') {
+                        this._configError = `Config field ${colorField} must be a string (CSS color value)`;
+                        break;
+                    }
+                }
+            }
+
+            // Validate hide UI element configs
+            const hideBooleanFields = ['hide_top_bar', 'hide_ack_buttons'];
+            for (const hideField of hideBooleanFields) {
+                if (Object.hasOwn(this._config, hideField)) {
+                    // Allow truthy string values like existing include_old_unacked
+                    // Will be processed by isTruthy() function
+                }
+            }
         }
+        
+        // Set default slider value from config
+        if (this._config && Object.hasOwn(this._config, 'default_slider_value') && !this._configError) {
+            this._sliderVal = this._config.default_slider_value;
+        }
+        
+        // Pre-expand convenience states for performance
+        this._expandedHideStates = this._config && this._config.hide_states ? this.expandHideStates(this._config.hide_states) : [];
+        
         this.slowedUpdate(true);
+    }
+    
+    // Helper function to expand convenience states
+    expandHideStates(hideStates) {
+        if (!hideStates || !Array.isArray(hideStates)) {
+            return [];
+        }
+        
+        const expanded = [];
+        for (const state of hideStates) {
+            switch (state) {
+                case 'acked':
+                    expanded.push('acked_on', 'acked_off');
+                    break;
+                case 'disabled':
+                    expanded.push('disabled_on', 'disabled_off');
+                    break;
+                case 'snoozed':
+                    expanded.push('snoozed_on', 'snoozed_off');
+                    break;
+                default:
+                    expanded.push(state);
+                    break;
+            }
+        }
+        return expanded;
+    }
+    
+    // Generate dynamic ack bar text based on what states are actually shown
+    generateAckBarText() {
+        if (!this._expandedHideStates || this._expandedHideStates.length === 0) {
+            return "---- Acked, snoozed or disabled ---";
+        }
+        
+        // Check which categories are completely hidden (both on and off states)
+        const isAckedHidden = this._expandedHideStates.includes('acked_on') && this._expandedHideStates.includes('acked_off');
+        const isDisabledHidden = this._expandedHideStates.includes('disabled_on') && this._expandedHideStates.includes('disabled_off');
+        const isSnoozedHidden = this._expandedHideStates.includes('snoozed_on') && this._expandedHideStates.includes('snoozed_off');
+        
+        // Build list of categories that are NOT completely hidden
+        const visibleCategories = [];
+        if (!isAckedHidden) visibleCategories.push("acked");
+        if (!isSnoozedHidden) visibleCategories.push("snoozed");
+        if (!isDisabledHidden) visibleCategories.push("disabled");
+        
+        if (visibleCategories.length === 0) {
+            return "---- Special states ---";
+        } else if (visibleCategories.length === 1) {
+            return `---- ${visibleCategories[0].charAt(0).toUpperCase() + visibleCategories[0].slice(1)} ---`;
+        } else if (visibleCategories.length === 2) {
+            return `---- ${visibleCategories[0].charAt(0).toUpperCase() + visibleCategories[0].slice(1)} or ${visibleCategories[1]} ---`;
+        } else {
+            return `---- ${visibleCategories[0].charAt(0).toUpperCase() + visibleCategories[0].slice(1)}, ${visibleCategories[1]} or ${visibleCategories[2]} ---`;
+        }
     }
     // Slider changed value
     slideCh(ev) {
@@ -582,7 +732,7 @@ class Alert2Overview extends LitElement {
                 }
                 if (idx == ackedIdx) {
                     jassert(inDetails === null, inDetails);
-                    entListHtml.push(html`<div id="ackbar">---- Acked, snoozed or disabled ---</div>`);
+                    entListHtml.push(html`<div id="ackbar">${this.generateAckBarText()}</div>`);
                 }
                 //console.log('rendering', dispInfo.entityName, ' and ', dispInfo.isSuperseded, dispInfo);
                 if (dispInfo.isSuperseded) {
@@ -613,6 +763,7 @@ class Alert2Overview extends LitElement {
             <h1 class="card-header"><div class="name" @click=${this._toggleShowVersion}>${title}</div>${versionHtml}</h1>
             ${cfgErrHtml}
             <div class="card-content">
+              ${(this._config && isTruthy(this._config.hide_top_bar)) ? '' : html`
               <div style="display:flex; align-items: center; margin-bottom: 1em;">
                   <ha-slider .min=${0} .max=${this._sliderValArr.length-1} .step=${1} .value=${this._sliderVal} snaps ignore-bar-touch
                      @change=${this.slideCh}
@@ -624,6 +775,7 @@ class Alert2Overview extends LitElement {
                     @click=${this._ackAll}
                     >Ack all</ha-progress-button>
               </div>
+              `}
               ${entListHtml}
             </div>
           </ha-card>`;
@@ -641,6 +793,13 @@ class Alert2Overview extends LitElement {
             }
             element.displayValMonitor = this._displayValMonitor;
             element.isSuperseded = dispInfo.isSuperseded;
+            element.colorConfig = {
+                low_color: this._config?.low_color,
+                medium_color: this._config?.medium_color,
+                high_color: this._config?.high_color,
+                off_color: this._config?.off_color
+            };
+            element.hideAckButtons = this._config && isTruthy(this._config.hide_ack_buttons);
             if (dispInfo.isSuperseded) {
                 element.classList.add('superseded');
             }
@@ -853,7 +1012,19 @@ class Alert2Overview extends LitElement {
                     isOn = true;
                     testMs =  lastChangeMs;
                     if (!filterRegex || filterRegex.test(entityName)) {
-                        entDispInfos.push({ isOn:isOn, isAcked:isAcked, testMs:testMs, entityName:entityName } );
+                        // Check if this alert state should be hidden
+                        const alertState = getAlertState(ent, isOn, isAcked);
+                        const shouldHideState = this._expandedHideStates.includes(alertState);
+                        
+                        // Check if this alert priority should be shown
+                        const alertPriority = getPriority(this._hass, { entityName: entityName });
+                        const showPriorities = this._config && this._config.show_priorities ? this._config.show_priorities : ['low', 'medium', 'high'];
+                        const shouldShowPriority = showPriorities.includes(alertPriority);
+                        
+                        // Only add the alert if it passes both filters
+                        if (!shouldHideState && shouldShowPriority) {
+                            entDispInfos.push({ isOn:isOn, isAcked:isAcked, testMs:testMs, entityName:entityName } );
+                        }
                     }
                 } // else is off, which means acked, or is idle which means is off.
             } else if (entityName.startsWith('alert2.')) {
@@ -903,9 +1074,21 @@ class Alert2Overview extends LitElement {
                 const isOldUnacked = !isAcked && testMs > 0;
                 if (isOn || (isOldUnacked && includeOldUnacked) || intervalStartMs < testMs || not_enabled) {
                     if (!filterRegex || filterRegex.test(entityName)) {
-                        let supersededBySet = supersedeMgr.supersededBySet(entityName);
-                        entDispInfos.push({ isOn:isOn, isAcked:isAcked, testMs:testMs, entityName:entityName,
-                                            supersededBySet: supersededBySet } );
+                        // Check if this alert state should be hidden
+                        const alertState = getAlertState(ent, isOn, isAcked);
+                        const shouldHideState = this._expandedHideStates.includes(alertState);
+                        
+                        // Check if this alert priority should be shown
+                        const alertPriority = getPriority(this._hass, { entityName: entityName });
+                        const showPriorities = this._config && this._config.show_priorities ? this._config.show_priorities : ['low', 'medium', 'high'];
+                        const shouldShowPriority = showPriorities.includes(alertPriority);
+                        
+                        // Only add the alert if it passes both filters
+                        if (!shouldHideState && shouldShowPriority) {
+                            let supersededBySet = supersedeMgr.supersededBySet(entityName);
+                            entDispInfos.push({ isOn:isOn, isAcked:isAcked, testMs:testMs, entityName:entityName,
+                                                supersededBySet: supersededBySet } );
+                        }
                     }
                 }
             }
@@ -1067,6 +1250,14 @@ class Alert2EntityRow extends LitElement  {
     set isSuperseded(abool) {
         this._isSuperseded = abool;
     }
+    set colorConfig(config) {
+        this._colorConfig = config;
+        this.requestUpdate();
+    }
+    set hideAckButtons(hide) {
+        this._hideAckButtons = hide;
+        this.requestUpdate();
+    }
     constructor() {
         super();
         this._hass = null;
@@ -1077,6 +1268,8 @@ class Alert2EntityRow extends LitElement  {
         this.display_change_cb = null;
         this._displayValMonitor = null;
         this._isSuperseded = false;
+        this._colorConfig = null;
+        this._hideAckButtons = false;
     }
     setConfig(config) {
         if (!config || !config.entity) {
@@ -1145,13 +1338,37 @@ class Alert2EntityRow extends LitElement  {
         if (priority == 'low') {  stateClass += ' lowpri'; }
         if (priority == 'medium') {  stateClass += ' mediumpri'; }
         if (priority == 'high') {  stateClass += ' highpri'; }
+        
+        // Apply custom colors if configured
+        let badgeStyle = '';
+        if (this._colorConfig) {
+            const isOn = stateObj && stateObj.state === 'on';
+            let customColor = null;
+            
+            if (!isOn && this._colorConfig.off_color) {
+                customColor = this._colorConfig.off_color;
+            } else if (isOn) {
+                if (priority === 'low' && this._colorConfig.low_color) {
+                    customColor = this._colorConfig.low_color;
+                } else if (priority === 'medium' && this._colorConfig.medium_color) {
+                    customColor = this._colorConfig.medium_color;
+                } else if (priority === 'high' && this._colorConfig.high_color) {
+                    customColor = this._colorConfig.high_color;
+                }
+            }
+            
+            if (customColor) {
+                badgeStyle = `color: ${customColor} !important;`;
+            }
+        }
+        
         return html`
         <div class="mainrow">
             <div class="outhead">
-               <state-badge class=${stateClass} .hass=${this._hass} .stateObj=${stateObj} @click=${this._rowClick} tabindex="0"></state-badge>
+               <state-badge class=${stateClass} style=${badgeStyle} .hass=${this._hass} .stateObj=${stateObj} @click=${this._rowClick} tabindex="0"></state-badge>
                <div class="info pointer text-content" title=${stateObj.entity_id} @click=${this._rowClick}  >${entHtml}</div>
             </div>
-            <ha-alert2-state .hass=${this._hass} .stateObj=${stateObj} class="text-content value pointer astate"  @click=${this._rowClick} >
+            <ha-alert2-state .hass=${this._hass} .stateObj=${stateObj} .hideAckButtons=${this._hideAckButtons} class="text-content value pointer astate"  @click=${this._rowClick} >
          </div>
          ${dispMsgHtml}
          </ha-alert2-state>
@@ -1278,6 +1495,7 @@ class RelativeTime extends LitElement {
 class HaAlert2State extends LitElement {
     static properties = {
         _ackInProgress: {state: true},
+        hideAckButtons: {attribute: false},
     }
     constructor() {
         super();
@@ -1365,17 +1583,19 @@ class HaAlert2State extends LitElement {
             }
         }
         let ackButton = ''
-        const is_acked = ent.attributes['is_acked'];
-        if (is_acked) {
-            ackButton = html`<ha-progress-button
-                  .progress=${this._ackInProgress} class="unack"
-                  @click=${this._junack}>Unack</ha-progress-button>
-                 `;
-        } else {
-            ackButton = html`<ha-progress-button
-                  .progress=${this._ackInProgress}
-                  @click=${this._jack}>Ack</ha-progress-button>
-                 `;
+        if (!this.hideAckButtons) {
+            const is_acked = ent.attributes['is_acked'];
+            if (is_acked) {
+                ackButton = html`<ha-progress-button
+                      .progress=${this._ackInProgress} class="unack"
+                      @click=${this._junack}>Unack</ha-progress-button>
+                     `;
+            } else {
+                ackButton = html`<ha-progress-button
+                      .progress=${this._ackInProgress}
+                      @click=${this._jack}>Ack</ha-progress-button>
+                     `;
+            }
         }
         let snoozeBadge = '';
         if (ent.attributes.notification_control == NOTIFICATIONS_ENABLED) { }
