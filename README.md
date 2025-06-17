@@ -182,13 +182,13 @@ Example Lovelace YAML config:
         
         # Hide specific alert states (using convenience states)
         hide_states:
-          - "acked"      # Hides both acked_on and acked_off
-          - "disabled"   # Hides both disabled_on and disabled_off
+          - acked        # Hides both acked_on and acked_off
+          - disabled     # Hides both disabled_on and disabled_off
         
         # Show only medium and high priority alerts
         show_priorities:
-          - "medium" 
-          - "high"
+          - medium
+          - high
         
         # Custom icon colors
         low_color: "#2196F3"      # Blue for low priority
