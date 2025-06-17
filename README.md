@@ -153,14 +153,14 @@ The Overview card supports a few configuration options:
 | `filter_entity_id` |  A glob or regex filter that restricts the candidate set of Alert2 entities to be displayed. A glob is a string with \* in it at least once.  A regex is a string that begins and ends with "/". Defaults to "*" (i.e., do not exclude any entities) |
 | `hide_superseded` | When truthy (string values like "true", "on", or "yes"), do not display in the Overview card any alert that is superseded by a currently firing alert. |
 | `hide_states` | An array of alert states to hide from the Overview card. Valid values are: `on`, `off`, `acked_on`, `acked_off`, `disabled_on`, `disabled_off`, `snoozed_on`, `snoozed_off`. Convenience states: `acked` (includes both `acked_on` and `acked_off`), `disabled` (includes both `disabled_on` and `disabled_off`), `snoozed` (includes both `snoozed_on` and `snoozed_off`). If not specified, all states are shown. |
-| `show_priorities` | An array of priority levels to show in the Overview card. Valid values are: `low`, `medium`, `high`. Defaults to `["low", "medium", "high"]` (show all priorities). |
+| `show_priorities` | An array of priority levels to show in the Overview card. Valid values are: `low`, `medium`, `high`. Defaults to show all priorities. |
 | `default_slider_value` | Sets the default time window for the slider. Must be an integer from 0 to 6 corresponding to: 0=1 minute, 1=10 minutes, 2=1 hour, 3=4 hours (default), 4=1 day, 5=4 days, 6=2 weeks. |
-| `low_color` | Custom color for low priority alerts when "on". Any valid CSS color (e.g., `"blue"`, `"#0066cc"`, `"rgb(0,102,204)"`). |
+| `low_color` | Custom color for low priority alerts when "on". Any valid CSS color (e.g., `"blue"`, `"#0066cc"`, `"rgb(0,102,204)"`). Defaults to theme color. |
 | `medium_color` | Custom color for medium priority alerts when "on". Defaults to orange if not specified. |
 | `high_color` | Custom color for high priority alerts when "on". Defaults to red if not specified. |
-| `off_color` | Custom color for all alerts when "off" (regardless of priority). |
-| `hide_top_bar` | Hide the entire top control bar (time slider and "Ack all" button). Can be truthy string values like "true", "on", "yes". Defaults to false. |
-| `hide_ack_buttons` | Hide individual "Ack"/"Unack" buttons on each alert. Can be truthy string values like "true", "on", "yes". Defaults to false. |
+| `off_color` | Custom color for all alerts when "off" (regardless of priority). Defaults to theme color. |
+| `hide_top_bar` | Hide the entire top control bar (time slider and "Ack all" button). Can be truthy string values like "true", "on", "yes", or the opposites. Defaults to false. |
+| `hide_ack_buttons` | Hide individual "Ack"/"Unack" buttons on each alert. Can be truthy string values like "true", "on", "yes", or the opposites. Defaults to false. |
 
 Example Lovelace YAML config:
 

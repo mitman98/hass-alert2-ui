@@ -557,12 +557,17 @@ class Alert2Overview extends LitElement {
                 }
             }
 
-            // Validate hide UI element configs
-            const hideBooleanFields = ['hide_top_bar', 'hide_ack_buttons'];
-            for (const hideField of hideBooleanFields) {
-                if (Object.hasOwn(this._config, hideField)) {
-                    // Allow truthy string values like existing include_old_unacked
-                    // Will be processed by isTruthy() function
+            // Validate boolean-like config fields
+            const booleanFields = ['hide_top_bar', 'hide_ack_buttons', 'include_old_unacked'];
+            for (const boolField of booleanFields) {
+                if (Object.hasOwn(this._config, boolField)) {
+                    const value = this._config[boolField];
+                    
+                    // Check if value is a valid boolean-like type
+                    if (!this.isValidBooleanValue(value)) {
+                        this._configError = `Config field ${boolField} must be a boolean, number, or string (got ${typeof value}: ${JSON.stringify(value)})`;
+                        break;
+                    }
                 }
             }
         }
@@ -604,32 +609,49 @@ class Alert2Overview extends LitElement {
         return expanded;
     }
     
+    // Validate if a value can be processed by isTruthy function
+    isValidBooleanValue(value) {
+        const validTypes = ['boolean', 'number', 'string'];
+        return validTypes.includes(typeof value);
+    }
+    
     // Generate dynamic ack bar text based on what states are actually shown
     generateAckBarText() {
         if (!this._expandedHideStates || this._expandedHideStates.length === 0) {
             return "---- Acked, snoozed or disabled ---";
         }
         
-        // Check which categories are completely hidden (both on and off states)
-        const isAckedHidden = this._expandedHideStates.includes('acked_on') && this._expandedHideStates.includes('acked_off');
-        const isDisabledHidden = this._expandedHideStates.includes('disabled_on') && this._expandedHideStates.includes('disabled_off');
-        const isSnoozedHidden = this._expandedHideStates.includes('snoozed_on') && this._expandedHideStates.includes('snoozed_off');
+        // Define the categories to check
+        const categories = ['acked', 'snoozed', 'disabled'];
         
-        // Build list of categories that are NOT completely hidden
-        const visibleCategories = [];
-        if (!isAckedHidden) visibleCategories.push("acked");
-        if (!isSnoozedHidden) visibleCategories.push("snoozed");
-        if (!isDisabledHidden) visibleCategories.push("disabled");
+        // Find visible categories (not completely hidden)
+        const visibleCategories = categories.filter(category => {
+            const onState = `${category}_on`;
+            const offState = `${category}_off`;
+            return !(this._expandedHideStates.includes(onState) && this._expandedHideStates.includes(offState));
+        });
         
         if (visibleCategories.length === 0) {
             return "---- Special states ---";
-        } else if (visibleCategories.length === 1) {
-            return `---- ${visibleCategories[0].charAt(0).toUpperCase() + visibleCategories[0].slice(1)} ---`;
-        } else if (visibleCategories.length === 2) {
-            return `---- ${visibleCategories[0].charAt(0).toUpperCase() + visibleCategories[0].slice(1)} or ${visibleCategories[1]} ---`;
-        } else {
-            return `---- ${visibleCategories[0].charAt(0).toUpperCase() + visibleCategories[0].slice(1)}, ${visibleCategories[1]} or ${visibleCategories[2]} ---`;
         }
+        
+        // Generic text building - join with proper grammar, then capitalize only first word
+        let text;
+        if (visibleCategories.length === 1) {
+            text = visibleCategories[0];
+        } else if (visibleCategories.length === 2) {
+            text = visibleCategories.join(' or ');
+        } else {
+            // For 3+ items: "a, b or c"  
+            const allButLast = visibleCategories.slice(0, -1);
+            const last = visibleCategories[visibleCategories.length - 1];
+            text = allButLast.join(', ') + ' or ' + last;
+        }
+        
+        // Capitalize only the first character of the entire phrase
+        text = text.charAt(0).toUpperCase() + text.slice(1);
+        
+        return `---- ${text} ---`;
     }
     // Slider changed value
     slideCh(ev) {
