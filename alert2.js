@@ -546,7 +546,7 @@ class Alert2Overview extends LitElement {
             }
             
             // Validate color configs
-            const colorFields = ['low_color', 'medium_color', 'high_color', 'off_color'];
+            const colorFields = ['low_color', 'medium_color', 'high_color', 'off_color', 'unacked_off_color'];
             for (const colorField of colorFields) {
                 if (Object.hasOwn(this._config, colorField)) {
                     const colorValue = this._config[colorField];
@@ -558,7 +558,7 @@ class Alert2Overview extends LitElement {
             }
 
             // Validate boolean-like config fields
-            const booleanFields = ['hide_top_bar', 'hide_ack_buttons', 'include_old_unacked'];
+            const booleanFields = ['hide_top_bar', 'hide_ack_buttons', 'include_old_unacked', 'snoozed_disabled_use_off_color'];
             for (const boolField of booleanFields) {
                 if (Object.hasOwn(this._config, boolField)) {
                     const value = this._config[boolField];
@@ -817,7 +817,9 @@ class Alert2Overview extends LitElement {
                 low_color: this._config?.low_color,
                 medium_color: this._config?.medium_color,
                 high_color: this._config?.high_color,
-                off_color: this._config?.off_color
+                off_color: this._config?.off_color,
+                unacked_off_color: this._config?.unacked_off_color,
+                snoozed_disabled_use_off_color: this._config?.snoozed_disabled_use_off_color
             };
             element.hideAckButtons = this._config && isTruthy(this._config.hide_ack_buttons);
             if (dispInfo.isSuperseded) {
@@ -1106,7 +1108,7 @@ class Alert2Overview extends LitElement {
                         // Only add the alert if it passes both filters
                         if (!shouldHideState && shouldShowPriority) {
                             let supersededBySet = supersedeMgr.supersededBySet(entityName);
-                            entDispInfos.push({ isOn:isOn, isAcked:isAcked, testMs:testMs, entityName:entityName,
+                            entDispInfos.push({ isOn:isOn, isAcked:isAcked, isSnoozedOrDisabled:not_enabled, testMs:testMs, entityName:entityName,
                                                 supersededBySet: supersededBySet } );
                         }
                     }
@@ -1161,6 +1163,8 @@ class Alert2Overview extends LitElement {
                 return a.isAcked ? 1 : -1;
             } else if (a.isOn != b.isOn) {
                 return a.isOn ? -1 : 1;
+            } else if (a.isSnoozedOrDisabled != b.isSnoozedOrDisabled) {
+                return a.isSnoozedOrDisabled ? 1 : -1;  // non-snoozed/disabled first, then snoozed/disabled
             } else {
                 let aIdx = ['low', 'medium', 'high'].indexOf(getPriority(outerThis._hass, a));
                 let bIdx = ['low', 'medium', 'high'].indexOf(getPriority(outerThis._hass, b));
@@ -1223,6 +1227,7 @@ class Alert2Overview extends LitElement {
                 }
                 if (newe.isOn != olde.isOn ||
                     newe.isAcked != olde.isAcked ||
+                    newe.isSnoozedOrDisabled != olde.isSnoozedOrDisabled ||
                     newe.testMs != olde.testMs ||
                     newe.isSuperseded != olde.isSuperseded ||
                     newe.configInfo !== olde.configInfo
@@ -1362,18 +1367,36 @@ class Alert2EntityRow extends LitElement  {
         // Apply custom colors if configured
         let badgeStyle = '';
         if (this._colorConfig) {
-            const isOn = stateObj && stateObj.state === 'on';
+            const isAcked = stateObj.attributes['is_acked'];
+            const isConditionAlert = 'last_on_time' in stateObj.attributes;
+            const isOn = stateObj.state === 'on';
+            const notificationControl = stateObj.attributes.notification_control;
+            const isSnoozedOrDisabled = notificationControl && notificationControl !== 'enabled';
+            const shouldUseSnoozedOffColor = this._colorConfig.snoozed_disabled_use_off_color && isTruthy(this._colorConfig.snoozed_disabled_use_off_color);
             let customColor = null;
             
-            if (!isOn && this._colorConfig.off_color) {
-                customColor = this._colorConfig.off_color;
-            } else if (isOn) {
-                if (priority === 'low' && this._colorConfig.low_color) {
+            if ((isOn && isConditionAlert) || (!isConditionAlert && !isAcked)) {
+                // "on" condition alerts OR unacked trigger alerts: use priority colors
+                if (isSnoozedOrDisabled && shouldUseSnoozedOffColor && this._colorConfig.off_color) {
+                    customColor = this._colorConfig.off_color;
+                } else if (priority === 'low' && this._colorConfig.low_color) {
                     customColor = this._colorConfig.low_color;
                 } else if (priority === 'medium' && this._colorConfig.medium_color) {
                     customColor = this._colorConfig.medium_color;
                 } else if (priority === 'high' && this._colorConfig.high_color) {
                     customColor = this._colorConfig.high_color;
+                }
+            } else {
+                // "off" condition alerts OR acked trigger alerts
+                if (isSnoozedOrDisabled && shouldUseSnoozedOffColor && this._colorConfig.off_color) {
+                    // Snoozed or disabled alerts use off_color when config option is enabled
+                    customColor = this._colorConfig.off_color;
+                } else if (isAcked && this._colorConfig.off_color) {
+                    // Acked condition alerts (off) or acked trigger alerts
+                    customColor = this._colorConfig.off_color;
+                } else if (!isAcked && this._colorConfig.unacked_off_color) {
+                    // Unacked "off" condition alerts only (trigger alerts handled above)
+                    customColor = this._colorConfig.unacked_off_color;
                 }
             }
             

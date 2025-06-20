@@ -135,10 +135,12 @@ Note - `alert2-overview` will show currently firing old Alert-1 alerts, but it w
 The order of displayed alerts is:
 1. Alerts currently on and unacked, sorted by priority and then recency.
 1. Alerts currently off and unacked, sorted by priority and then recency. This includes event alerts.
-1. Alerts currently on and acked, sorted by priority and then recency.
-1. Alerts currently off and acked, sorted by priority and then recency. This includes event alerts.
+1. Alerts currently on and acked (not snoozed/disabled), sorted by priority and then recency.
+1. Alerts currently on and acked+snoozed/disabled, sorted by priority and then recency.
+1. Alerts currently off and acked (not snoozed/disabled), sorted by priority and then recency. This includes event alerts.
+1. Alerts currently off and acked+snoozed/disabled, sorted by priority and then recency. This includes event alerts.
 
-For the purpose of ordering, alerts that are snoozed or disabled are treated as if acked.
+Snoozed or disabled alerts are treated as acked but sorted after regular acked alerts within each section.
 
 If alert A is superseded by another alert that's firing, alert A will appear in UI without a badge, directly below the alert that supersedes it.
 
@@ -158,7 +160,9 @@ The Overview card supports a few configuration options:
 | `low_color` | Custom color for low priority alerts when "on". Any valid CSS color (e.g., `"blue"`, `"#0066cc"`, `"rgb(0,102,204)"`). Defaults to theme color. |
 | `medium_color` | Custom color for medium priority alerts when "on". Defaults to orange if not specified. |
 | `high_color` | Custom color for high priority alerts when "on". Defaults to red if not specified. |
-| `off_color` | Custom color for all alerts when "off" (regardless of priority). Defaults to theme color. |
+| `off_color` | Custom color for acked alerts when "off" and acked trigger alerts. Defaults to theme color. |
+| `unacked_off_color` | Custom color for unacked alerts when "off" and unacked trigger alerts. Defaults to theme color. |
+| `snoozed_disabled_use_off_color` | If `true`, snoozed and disabled alerts use `off_color` instead of their priority colors. Defaults to `false`. |
 | `hide_top_bar` | Hide the entire top control bar (time slider and "Ack all" button). Can be truthy string values like "true", "on", "yes", or the opposites. Defaults to false. |
 | `hide_ack_buttons` | Hide individual "Ack"/"Unack" buttons on each alert. Can be truthy string values like "true", "on", "yes", or the opposites. Defaults to false. |
 
@@ -194,7 +198,9 @@ Example Lovelace YAML config:
         low_color: "#2196F3"      # Blue for low priority
         medium_color: "#FF9800"   # Orange for medium priority  
         high_color: "#F44336"     # Red for high priority
-        off_color: "#9E9E9E"      # Gray for off state
+        off_color: "#9E9E9E"      # Gray for acked off/trigger alerts
+        unacked_off_color: "#FFC107"  # Amber for unacked off/trigger alerts
+        snoozed_disabled_use_off_color: true   # Snoozed/disabled alerts use off_color
         
         # Hide UI elements
         hide_top_bar: false       # Show the top control bar (default)
